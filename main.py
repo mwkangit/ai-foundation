@@ -3,10 +3,10 @@ import sys
 from agent import run_column_description_agent
 
 def main():
-    parser = argparse.ArgumentParser(description='TableF product_category 컬럼 설명 작성 에이전트')
+    parser = argparse.ArgumentParser(description='TableE engagement_score 컬럼 설명 작성 에이전트')
     parser.add_argument('--batch', '-b', action='store_true', help='배치 모드로 실행')
     parser.add_argument('--interactive', '-i', action='store_true', help='대화형 모드로 실행')
-    parser.add_argument('--table', '-t', default='tableD', help='대상 테이블명 (기본값: tableD)')
+    parser.add_argument('--table', '-t', default='tableE', help='대상 테이블명 (기본값: tableE)')
     parser.add_argument('--column', '-c', default='engagement_score', help='대상 컬럼명 (기본값: engagement_score)')
     
     args = parser.parse_args()

@@ -124,6 +124,8 @@ def analysis_node(state: AgentState) -> AgentState:
             program_match = re.search(r'프로그램 ID: ([^\n]+)', str(lineage_info))
             if program_match:
                 program_id = program_match.group(1).strip()
+                print(f"   프로그램 ID: {program_id}")
+                
                 etl_result = get_etl_query.invoke({
                     "program_id": program_id,
                     "job_seq": 1,
@@ -131,6 +133,48 @@ def analysis_node(state: AgentState) -> AgentState:
                 })
                 state["etl_queries"] = etl_result
                 state["messages"].append(SystemMessage(content=f"ETL 쿼리 분석 결과: {etl_result}"))
+                
+                # ETL 쿼리에서 추가 분석
+                if isinstance(etl_result, str) and "SQL 쿼리:" in etl_result:
+                    sql_start = etl_result.find("SQL 쿼리:") + len("SQL 쿼리:")
+                    sql_query = etl_result[sql_start:].strip()
+                    
+                    # 쿼리 복잡도 분석
+                    complexity_analysis = "ETL 쿼리 복잡도 분석:\n"
+                    
+                    # JOIN 개수
+                    join_count = sql_query.upper().count("JOIN")
+                    complexity_analysis += f"- JOIN 개수: {join_count}개\n"
+                    
+                    # 서브쿼리 개수
+                    subquery_count = sql_query.count("(") // 2  # 대략적인 서브쿼리 개수
+                    complexity_analysis += f"- 서브쿼리 개수: {subquery_count}개\n"
+                    
+                    # 집계 함수 개수
+                    agg_functions = ["SUM", "COUNT", "AVG", "MAX", "MIN"]
+                    agg_count = sum(sql_query.upper().count(func) for func in agg_functions)
+                    complexity_analysis += f"- 집계 함수 개수: {agg_count}개\n"
+                    
+                    # CASE 문 개수
+                    case_count = sql_query.upper().count("CASE")
+                    complexity_analysis += f"- CASE 문 개수: {case_count}개\n"
+                    
+                    # 쿼리 길이
+                    query_length = len(sql_query)
+                    complexity_analysis += f"- 쿼리 길이: {query_length}자\n"
+                    
+                    if join_count > 2:
+                        complexity_analysis += "- 복잡도: 높음 (다중 JOIN)\n"
+                    elif agg_count > 3:
+                        complexity_analysis += "- 복잡도: 높음 (다중 집계)\n"
+                    elif case_count > 2:
+                        complexity_analysis += "- 복잡도: 높음 (다중 조건부 로직)\n"
+                    else:
+                        complexity_analysis += "- 복잡도: 보통\n"
+                    
+                    state["messages"].append(SystemMessage(content=complexity_analysis))
+        else:
+            print("   ⚠️ 프로그램 ID를 찾을 수 없습니다.")
         state["current_step"] = "metadata_collection"
         
     elif current_step == "metadata_collection":
@@ -203,9 +247,14 @@ def analysis_node(state: AgentState) -> AgentState:
 - 비즈니스 관점에서의 핵심 역할과 가치
 
 ## 2. ETL 과정 분석
-- 원천 테이블에서 어떤 컬럼들이 이 컬럼을 생성하는데 기여했는지
-- ETL 쿼리에서 어떤 변환 과정을 거쳤는지 (JOIN, GROUP BY, 함수 적용 등)
-- 데이터 변환의 구체적인 로직과 이유
+- **원천 테이블과 컬럼**: 어떤 테이블의 어떤 컬럼들이 이 컬럼 생성에 기여했는지
+- **JOIN 관계**: 테이블 간의 조인 조건과 방식 (INNER, LEFT, RIGHT JOIN 등)
+- **집계 함수**: SUM, COUNT, AVG 등 어떤 집계 함수가 사용되었는지
+- **GROUP BY 로직**: 어떤 기준으로 그룹화되었는지
+- **WHERE 조건**: 어떤 필터링 조건이 적용되었는지
+- **CASE 문**: 조건부 로직이 있다면 어떻게 처리되었는지
+- **데이터 변환 단계**: 원천 데이터에서 최종 컬럼으로의 변환 과정을 단계별로 설명
+- **쿼리 복잡도**: 쿼리의 복잡도와 성능 고려사항
 
 ## 3. 원천 데이터와의 관계
 - 원천 컬럼들의 의미와 설명

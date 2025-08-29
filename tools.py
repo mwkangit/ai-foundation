@@ -146,28 +146,53 @@ def analyze_column_lineage(target_table: str, target_column: str) -> str:
         
         # SELECT 절에서 target_column 찾기
         if target_column.lower() in sql_query.lower():
-            etl_analysis += f"ETL 쿼리에서 {target_column} 컬럼 분석:\n"
+            etl_analysis += f"ETL 쿼리에서 {target_column} 컬럼 상세 분석:\n"
+            
+            # SELECT 절 분석
+            if "SELECT" in sql_query.upper():
+                select_parts = sql_query.upper().split("SELECT")
+                if len(select_parts) > 1:
+                    select_clause = select_parts[1].split("FROM")[0] if "FROM" in select_parts[1] else select_parts[1]
+                    etl_analysis += f"- SELECT 절: {select_clause.strip()}\n"
+                    
+                    # target_column이 SELECT 절에서 어떻게 처리되는지 분석
+                    if target_column.upper() in select_clause:
+                        etl_analysis += f"- {target_column} 컬럼 처리: SELECT 절에서 직접 선택됨\n"
+                    elif "SUM" in select_clause and target_column.upper() in select_clause:
+                        etl_analysis += f"- {target_column} 컬럼 처리: SUM 함수로 집계됨\n"
+                    elif "COUNT" in select_clause and target_column.upper() in select_clause:
+                        etl_analysis += f"- {target_column} 컬럼 처리: COUNT 함수로 집계됨\n"
+                    elif "AVG" in select_clause and target_column.upper() in select_clause:
+                        etl_analysis += f"- {target_column} 컬럼 처리: AVG 함수로 집계됨\n"
             
             # FROM 절에서 소스 테이블 확인
             if "FROM" in sql_query.upper():
                 from_parts = sql_query.upper().split("FROM")
                 if len(from_parts) > 1:
                     from_clause = from_parts[1].split("WHERE")[0] if "WHERE" in from_parts[1] else from_parts[1]
-                    etl_analysis += f"- 소스 테이블: {from_clause.strip()}\n"
+                    from_clause = from_clause.split("JOIN")[0] if "JOIN" in from_clause else from_clause
+                    etl_analysis += f"- 메인 소스 테이블: {from_clause.strip()}\n"
             
-            # JOIN 절 분석
+            # JOIN 절 상세 분석
             if "JOIN" in sql_query.upper():
                 join_parts = sql_query.upper().split("JOIN")
                 for i, part in enumerate(join_parts[1:], 1):
                     join_table = part.split("ON")[0].strip() if "ON" in part else part.strip()
+                    join_condition = part.split("ON")[1].split("WHERE")[0] if "ON" in part and "WHERE" in part else (part.split("ON")[1] if "ON" in part else "")
+                    join_condition = join_condition.split("GROUP BY")[0] if "GROUP BY" in join_condition else join_condition
                     etl_analysis += f"- JOIN 테이블 {i}: {join_table}\n"
+                    if join_condition:
+                        etl_analysis += f"  JOIN 조건: {join_condition.strip()}\n"
             
             # WHERE 절에서 target_column 관련 조건 찾기
             if "WHERE" in sql_query.upper():
                 where_parts = sql_query.upper().split("WHERE")
                 if len(where_parts) > 1:
                     where_clause = where_parts[1].split("GROUP BY")[0] if "GROUP BY" in where_parts[1] else where_parts[1]
+                    where_clause = where_clause.split("ORDER BY")[0] if "ORDER BY" in where_clause else where_clause
                     if target_column.upper() in where_clause:
+                        etl_analysis += f"- WHERE 조건 (target_column 관련): {where_clause.strip()}\n"
+                    else:
                         etl_analysis += f"- WHERE 조건: {where_clause.strip()}\n"
             
             # GROUP BY 절에서 target_column 확인
@@ -175,8 +200,44 @@ def analyze_column_lineage(target_table: str, target_column: str) -> str:
                 group_parts = sql_query.upper().split("GROUP BY")
                 if len(group_parts) > 1:
                     group_clause = group_parts[1].split("ORDER BY")[0] if "ORDER BY" in group_parts[1] else group_parts[1]
+                    group_clause = group_clause.split("HAVING")[0] if "HAVING" in group_clause else group_clause
                     if target_column.upper() in group_clause:
-                        etl_analysis += f"- GROUP BY 포함: {group_clause.strip()}\n"
+                        etl_analysis += f"- GROUP BY 포함 (target_column): {group_clause.strip()}\n"
+                    else:
+                        etl_analysis += f"- GROUP BY: {group_clause.strip()}\n"
+            
+            # HAVING 절 분석
+            if "HAVING" in sql_query.upper():
+                having_parts = sql_query.upper().split("HAVING")
+                if len(having_parts) > 1:
+                    having_clause = having_parts[1].split("ORDER BY")[0] if "ORDER BY" in having_parts[1] else having_parts[1]
+                    if target_column.upper() in having_clause:
+                        etl_analysis += f"- HAVING 조건 (target_column 관련): {having_clause.strip()}\n"
+                    else:
+                        etl_analysis += f"- HAVING 조건: {having_clause.strip()}\n"
+            
+            # ORDER BY 절 분석
+            if "ORDER BY" in sql_query.upper():
+                order_parts = sql_query.upper().split("ORDER BY")
+                if len(order_parts) > 1:
+                    order_clause = order_parts[1].split("LIMIT")[0] if "LIMIT" in order_parts[1] else order_parts[1]
+                    if target_column.upper() in order_clause:
+                        etl_analysis += f"- ORDER BY (target_column 포함): {order_clause.strip()}\n"
+                    else:
+                        etl_analysis += f"- ORDER BY: {order_clause.strip()}\n"
+            
+            # 서브쿼리 분석
+            if "(" in sql_query and ")" in sql_query:
+                etl_analysis += f"- 서브쿼리 포함: 복잡한 쿼리 구조\n"
+            
+            # 함수 사용 분석
+            functions = ["SUM", "COUNT", "AVG", "MAX", "MIN", "CASE", "COALESCE", "NULLIF"]
+            used_functions = []
+            for func in functions:
+                if func in sql_query.upper():
+                    used_functions.append(func)
+            if used_functions:
+                etl_analysis += f"- 사용된 함수들: {', '.join(used_functions)}\n"
         
         result = f"컬럼 {target_column}의 상세 계보 분석:\n"
         result += f"- 대상 테이블: {target_table}\n"
